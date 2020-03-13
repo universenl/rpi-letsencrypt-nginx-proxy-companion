@@ -1,38 +1,41 @@
-FROM armv7/armhf-ubuntu:14.04 AS go-builder
-LABEL Mitch Daniels <m.daniels@grimbon.nl>
+FROM golang:1.14-alpine AS go-builder
 
-# Install wget and install/updates certificates
-RUN apt-get update \
- && apt-get install -y -q --no-install-recommends \
-    curl \
-    wget \
-	openssl \
-	ca-certificates \
-	make \
-	gcc \
-	build-essential \
-	git \
-	musl-dev \
-	golang \
-	python3 \
-	#&& rm /var/www/html/index.nginx-debian.html \
- && apt-get clean \
- && rm -r /var/lib/apt/lists/*
+ENV DOCKER_GEN_VERSION=0.7.4
 
-RUN wget http://www.openssl.org/source/openssl-1.1.1c.tar.gz \
-  && tar -zxf openssl-1.1.1c.tar.gz \
-  && cd openssl-1.1.1c \
-  && ./Configure darwin64-x86_64-cc --prefix=/usr/local/bin
+# Install build dependencies for docker-gen
+RUN apk add --update \
+        curl \
+        gcc \
+        git \
+        make \
+        musl-dev
 
-ENV GOPATH /go
-ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
-ENV DOCKER_GEN_VERSION 0.7.4
+# Build docker-gen
+RUN go get github.com/jwilder/docker-gen \
+    && cd /go/src/github.com/jwilder/docker-gen \
+    && git checkout $DOCKER_GEN_VERSION \
+    && make get-deps \
+    && make all
+
+FROM alpine:3.11
+
+LABEL maintainer="Yves Blusseau <90z7oey02@sneakemail.com> (@blusseau)"
+
 ENV DEBUG=false \
     DOCKER_HOST=unix:///var/run/docker.sock
 
-RUN wget https://github.com/jwilder/docker-gen/releases/download/$DOCKER_GEN_VERSION/docker-gen-linux-armhf-$DOCKER_GEN_VERSION.tar.gz \
- && tar -C /usr/local/bin -xvzf docker-gen-linux-armhf-$DOCKER_GEN_VERSION.tar.gz \
- && rm /docker-gen-linux-armhf-$DOCKER_GEN_VERSION.tar.gz
+# Install packages required by the image
+RUN apk add --update \
+        bash \
+        ca-certificates \
+        coreutils \
+        curl \
+        jq \
+        openssl \
+    && rm /var/cache/apk/*
+
+# Install docker-gen from build stage
+COPY --from=go-builder /go/src/github.com/jwilder/docker-gen/docker-gen /usr/local/bin/
 
 # Install simp_le
 COPY /install_simp_le.sh /app/install_simp_le.sh
